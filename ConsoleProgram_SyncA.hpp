@@ -242,7 +242,7 @@ class ConsoleProgram_Sync {
 			}
 
 			//初始化启动信息结构体
-			STARTUPINFO startupInfo;
+			STARTUPINFOA startupInfo;
 			ZeroMemory(&startupInfo, sizeof(startupInfo));
 			startupInfo.cb = sizeof(startupInfo);
 
@@ -263,10 +263,9 @@ class ConsoleProgram_Sync {
 			}
 			char* commandLine_c = new char[commandLine.size() + 1];
 			strncpy(commandLine_c, commandLine.c_str(), commandLine.size());
-			//mbstowcs(commandLine_c, commandLine.c_str(), commandLine.size() + 1);
 
 			//创建进程
-			if (!CreateProcess(NULL, commandLine_c, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, m_workingDirectory.c_str(), &startupInfo, &processInfo)) {
+			if (!CreateProcessA(NULL, commandLine_c, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, m_workingDirectory.c_str(), &startupInfo, &processInfo)) {
 				//释放命令行文本
 				delete[] commandLine_c;
 

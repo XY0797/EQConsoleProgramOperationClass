@@ -6,6 +6,18 @@
 
 可以操作控制台程序的C++类，使用C++17标准
 
+只适用于Windows平台！
+
+## ConsoleProgram_Sync
+
+同步版本的控制台程序操作类，分为使用GBK等非unicode字符集和使用unicode字符集(具体实现为Windows API的UTF-16)两种版本
+
+非unicode字符集的为``ConsoleProgram_SyncA``，unicode字符集的为``ConsoleProgram_SyncW``
+
+本类的类图如下：
+
+![ConsoleProgram_Sync类图](ClassMap1.png)
+
 ## 许可证
 
 本程序遵循 [GPL-3.0-only](https://opensource.org/license/gpl-3-0/)许可证。

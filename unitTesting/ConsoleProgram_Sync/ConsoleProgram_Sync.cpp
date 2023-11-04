@@ -1,5 +1,5 @@
 #define EQDebug
-#include "..\ConsoleProgram_Sync.hpp"
+#include "..\..\ConsoleProgram_SyncA.hpp"
 #include <thread>
 #include <chrono>
 ConsoleProgram_Sync program("D:\\用于被控制的控制台程序.exe");
