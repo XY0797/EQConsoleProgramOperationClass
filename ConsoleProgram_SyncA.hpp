@@ -22,7 +22,7 @@ void Clhandle_s(HANDLE& hd) {
 
 //控制台程序操作类，同步方式，线程安全
 //调用Stop可能抛出int型异常，值为1，表示调用结束进程后等待了2分钟，进程仍然处于运行状态
-class ConsoleProgram_Sync {
+class ConsoleProgram_SyncA {
 	private:
 		//可执行文件路径、工作目录、命令行参数
 		std::string m_programPath;
@@ -61,7 +61,7 @@ class ConsoleProgram_Sync {
 
 
 		//监视线程
-		static void CheckProcThread(ConsoleProgram_Sync* const classthis) {
+		static void CheckProcThread(ConsoleProgram_SyncA* const classthis) {
 			while (1) {
 				//进入锁
 				classthis->m_rwProcMutex.lock_shared();
@@ -154,7 +154,7 @@ class ConsoleProgram_Sync {
 		构造时传入：文件路径 [工作目录]
 		默认工作目录为文件所在目录
 		*/
-		ConsoleProgram_Sync(const std::string& programPath, const std::string& workingDirectory = "", const std::string& commandLineArgument = "")
+		ConsoleProgram_SyncA(const std::string& programPath, const std::string& workingDirectory = "", const std::string& commandLineArgument = "")
 			: m_programPath(programPath), m_workingDirectory(workingDirectory), m_commandLineArgument(commandLineArgument)
 			, m_processExitCode(STILL_ACTIVE), m_inputPipeRead(NULL), m_inputPipeWrite(NULL), m_outputPipeRead(NULL), m_outputPipeWrite(NULL), m_processHandle(NULL) {
 			//初始化指针
@@ -173,7 +173,7 @@ class ConsoleProgram_Sync {
 			m_thread = std::thread(&CheckProcThread, this);
 		}
 
-		~ConsoleProgram_Sync() {
+		~ConsoleProgram_SyncA() {
 			//设置正在析构标志
 			m_rwProcMutex.lock();
 			m_isExit = true;
@@ -263,6 +263,7 @@ class ConsoleProgram_Sync {
 			}
 			char* commandLine_c = new char[commandLine.size() + 1];
 			strncpy(commandLine_c, commandLine.c_str(), commandLine.size());
+			commandLine_c[commandLine.size()] = 0;
 
 			//创建进程
 			if (!CreateProcessA(NULL, commandLine_c, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, m_workingDirectory.c_str(), &startupInfo, &processInfo)) {
@@ -402,7 +403,7 @@ class ConsoleProgram_Sync {
 
 		/*
 		输入函数
-		接收C风格字符串
+		接收C风格字符串，长度不包含\0
 		*/
 		void Input(const char* input, DWORD len) {
 			//获取锁
@@ -490,6 +491,7 @@ class ConsoleProgram_Sync {
 		同步方式读取输出，如果没有输出就会一直等待，直到获取到输出才返回
 		返回实际写入的字节数目。如果在等待过程中进程自然结束，那么返回0
 		保证在数据的末尾有\0，这个\0不计入"实际写入的字节数目"
+		缓冲区大小必须大于1，否则行为未定义
 		*/
 		DWORD PullOutput(char* buffer, DWORD bufferSize) {
 			//获取读锁

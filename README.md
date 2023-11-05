@@ -10,13 +10,19 @@
 
 ## ConsoleProgram_Sync
 
-同步版本的控制台程序操作类，分为使用GBK等非unicode字符集和使用unicode字符集(具体实现为Windows API的UTF-16)两种版本
+同步版本的控制台程序操作类，分为使用GBK等多字节字符集和使用unicode字符集(这里特指Windows API的UTF-16，即wchar_t)两种版本
 
-非unicode字符集的为``ConsoleProgram_SyncA``，unicode字符集的为``ConsoleProgram_SyncW``
+多字节字符集的为``ConsoleProgram_SyncA``，unicode字符集的为``ConsoleProgram_SyncW``
 
 本类的类图如下：
 
-![ConsoleProgram_Sync类图](ClassMap1.png)
+ConsoleProgram_SyncA版本：
+
+![ConsoleProgram_SyncA类图](ClassMap1.png)
+
+ConsoleProgram_SyncW版本：
+
+![ConsoleProgram_SyncW类图](ClassMap2.png)
 
 ## 许可证
 

@@ -22,12 +22,12 @@ void Clhandle_s(HANDLE& hd) {
 
 //控制台程序操作类，同步方式，线程安全
 //调用Stop可能抛出int型异常，值为1，表示调用结束进程后等待了2分钟，进程仍然处于运行状态
-class ConsoleProgram_Sync {
+class ConsoleProgram_SyncW {
 	private:
 		//可执行文件路径、工作目录、命令行参数
-		std::string m_programPath;
-		std::string m_workingDirectory;
-		std::string m_commandLineArgument;
+		std::wstring m_programPath;
+		std::wstring m_workingDirectory;
+		std::wstring m_commandLineArgument;
 
 		//进程信息读写锁，多线程访问时的线程安全
 		std::shared_mutex m_rwProcMutex;
@@ -61,7 +61,7 @@ class ConsoleProgram_Sync {
 
 
 		//监视线程
-		static void CheckProcThread(ConsoleProgram_Sync* const classthis) {
+		static void CheckProcThread(ConsoleProgram_SyncW* const classthis) {
 			while (1) {
 				//进入锁
 				classthis->m_rwProcMutex.lock_shared();
@@ -154,7 +154,7 @@ class ConsoleProgram_Sync {
 		构造时传入：文件路径 [工作目录]
 		默认工作目录为文件所在目录
 		*/
-		ConsoleProgram_Sync(const std::string& programPath, const std::string& workingDirectory = "", const std::string& commandLineArgument = "")
+		ConsoleProgram_SyncW(const std::wstring& programPath, const std::wstring& workingDirectory = L"", const std::wstring& commandLineArgument = L"")
 			: m_programPath(programPath), m_workingDirectory(workingDirectory), m_commandLineArgument(commandLineArgument)
 			, m_processExitCode(STILL_ACTIVE), m_inputPipeRead(NULL), m_inputPipeWrite(NULL), m_outputPipeRead(NULL), m_outputPipeWrite(NULL), m_processHandle(NULL) {
 			//初始化指针
@@ -162,8 +162,8 @@ class ConsoleProgram_Sync {
 			m_lastOutputBufferLen = 0;
 			//处理工作目录
 			if (workingDirectory.empty()) {
-				size_t found = programPath.find_last_of("/\\");
-				if (found != std::string::npos) {
+				size_t found = programPath.find_last_of(L"/\\");
+				if (found != std::wstring::npos) {
 					this->m_workingDirectory = programPath.substr(0, found);
 				}
 			}
@@ -173,7 +173,7 @@ class ConsoleProgram_Sync {
 			m_thread = std::thread(&CheckProcThread, this);
 		}
 
-		~ConsoleProgram_Sync() {
+		~ConsoleProgram_SyncW() {
 			//设置正在析构标志
 			m_rwProcMutex.lock();
 			m_isExit = true;
@@ -242,7 +242,7 @@ class ConsoleProgram_Sync {
 			}
 
 			//初始化启动信息结构体
-			STARTUPINFO startupInfo;
+			STARTUPINFOW startupInfo;
 			ZeroMemory(&startupInfo, sizeof(startupInfo));
 			startupInfo.cb = sizeof(startupInfo);
 
@@ -257,16 +257,16 @@ class ConsoleProgram_Sync {
 			ZeroMemory(&processInfo, sizeof(processInfo));
 
 			//处理命令行信息
-			std::string commandLine = "\"" + m_programPath + "\"";
+			std::wstring commandLine = L"\"" + m_programPath + L"\"";
 			if (!m_commandLineArgument.empty()) {
-				commandLine += " " + m_commandLineArgument;
+				commandLine += L" " + m_commandLineArgument;
 			}
-			char* commandLine_c = new char[commandLine.size() + 1];
-			strncpy(commandLine_c, commandLine.c_str(), commandLine.size());
-			//mbstowcs(commandLine_c, commandLine.c_str(), commandLine.size() + 1);
+			wchar_t* commandLine_c = new wchar_t[commandLine.size() + 1];
+			wcsncpy(commandLine_c, commandLine.c_str(), commandLine.size());
+			commandLine_c[commandLine.size()] = 0;
 
 			//创建进程
-			if (!CreateProcess(NULL, commandLine_c, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, m_workingDirectory.c_str(), &startupInfo, &processInfo)) {
+			if (!CreateProcessW(NULL, commandLine_c, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, m_workingDirectory.c_str(), &startupInfo, &processInfo)) {
 				//释放命令行文本
 				delete[] commandLine_c;
 
@@ -299,111 +299,190 @@ class ConsoleProgram_Sync {
 		}
 
 		/*
-		停止进程运行，支持两种方式
-		1.传入需要输入的命令(需要包含换行符)，以及非0的超时时间。
-		将输入命令并且等待进程自行结束，如果超时就强制结束进程
-		注意：超时时间大于0小于20ms按20ms计
-		2.不传参数或传入其他情况的参数则强制结束进程
-		返回是否超时，如果未指定超时时间或超时时间为0，则始终返回false
+		停止进程运行
+		直接结束进程，等待进程结束后返回
 		*/
-		bool Stop(const std::string& input = "", int timeoutMilliseconds = 0) {
+		void Stop() {
 			//获取锁
 			m_rwProcMutex.lock_shared();
 
-			//判断参数情况
-			if ( (!input.empty()) && (timeoutMilliseconds != 0) ) {
-				//先尝试输入命令，等待进程自然结束
-
-				//判断状态，进程已经结束就没有必要再结束了
-				if (!m_processStatus) {
-					m_rwProcMutex.unlock_shared();
-					return false;
-				}
-
-				//输入命令
-				DWORD bytesWritten;
-				WriteFile(m_inputPipeWrite, input.c_str(), input.size(), &bytesWritten, NULL);
-
-				//释放锁
+			//判断状态，进程已经结束就没有必要再结束了
+			if (!m_processStatus) {
 				m_rwProcMutex.unlock_shared();
+				return;
+			}
 
-				//计时等待进程结束
-				bool isTimeout = false;
-				do {
-					//睡眠20ms
-					std::this_thread::sleep_for(std::chrono::milliseconds(20));
-					timeoutMilliseconds -= 20;
-					if (timeoutMilliseconds <= 0) {
-						isTimeout = true;
-						break;
-					}
-				} while (getProcessStatus());
-
-				//判断是自然结束还是超时了
-				if (isTimeout) {
-					//超时了就强制结束进程
-
-					//获取锁
-					m_rwProcMutex.lock_shared();
-
-					//判断进程是否结束
-					if (m_processStatus) {
-						//强制结束进程
-						TerminateProcess(m_processHandle, 0);
-
-						//结束进程后释放锁
-						m_rwProcMutex.unlock_shared();
-
-						//等待进程结束
-						int cnt = 0;
-						do {
-							//睡眠20ms
-							std::this_thread::sleep_for(std::chrono::milliseconds(20));
-							++cnt;
-							if (cnt > 6000) {
-								throw 1;
-							}
-						} while (getProcessStatus());
-					} else {
-						//直接解锁后返回
-						m_rwProcMutex.unlock_shared();
-					}
-					return true;
-				}
-			} else {
-				//判断状态，进程已经结束就没有必要再结束了
-				if (!m_processStatus) {
-					m_rwProcMutex.unlock_shared();
-					return false;
-				}
-
-				//强制结束进程
-				TerminateProcess(m_processHandle, 0);
-				if (m_isExit) {
-					m_rwProcMutex.unlock_shared();
-					return false;
-				}
-				//释放锁
+			//强制结束进程
+			TerminateProcess(m_processHandle, 0);
+			if (m_isExit) {
 				m_rwProcMutex.unlock_shared();
+				return;
+			}
 
-				//等待进程结束
-				int cnt = 0;
-				do {
-					//睡眠20ms
-					std::this_thread::sleep_for(std::chrono::milliseconds(20));
-					++cnt;
+			//释放锁
+			m_rwProcMutex.unlock_shared();
 
-					if (cnt > 6000) {
-						throw 1;
-					}
-				} while (getProcessStatus());
+			//等待进程结束
+			int cnt = 0;
+			do {
+				//睡眠20ms
+				std::this_thread::sleep_for(std::chrono::milliseconds(20));
+				++cnt;
+				if (cnt > 6000) {
+					throw 1;
+				}
+			} while (getProcessStatus());
+		}
+
+		/*
+		  停止进程运行
+		  传入需要输入的命令(需要包含换行符,本函数为多字节字符集版本)，以及非0的超时时间。
+		  将输入命令并且等待进程自行结束，如果超时就强制结束进程
+		  注意：超时时间大于0小于20ms按20ms计
+		  返回是否超时
+		 */
+		bool Stop(const std::wstring& input, int timeoutMilliseconds) {
+			//获取锁
+			m_rwProcMutex.lock_shared();
+
+			//先尝试输入命令，等待进程自然结束
+
+			//判断状态，进程已经结束就没有必要再结束了
+			if (!m_processStatus) {
+				m_rwProcMutex.unlock_shared();
+				return false;
+			}
+
+			//输入命令
+			DWORD bytesWritten;
+			WriteFile(m_inputPipeWrite, input.c_str(), input.size() * 2, &bytesWritten, NULL);
+
+			//释放锁
+			m_rwProcMutex.unlock_shared();
+
+			//计时等待进程结束
+			bool isTimeout = false;
+			do {
+				//睡眠20ms
+				std::this_thread::sleep_for(std::chrono::milliseconds(20));
+				timeoutMilliseconds -= 20;
+				if (timeoutMilliseconds <= 0) {
+					isTimeout = true;
+					break;
+				}
+			} while (getProcessStatus());
+
+			//判断是自然结束还是超时了
+			if (isTimeout) {
+				//超时了就强制结束进程
+
+				//获取锁
+				m_rwProcMutex.lock_shared();
+
+				//判断进程是否结束
+				if (m_processStatus) {
+					//强制结束进程
+					TerminateProcess(m_processHandle, 0);
+
+					//结束进程后释放锁
+					m_rwProcMutex.unlock_shared();
+
+					//等待进程结束
+					int cnt = 0;
+					do {
+						//睡眠20ms
+						std::this_thread::sleep_for(std::chrono::milliseconds(20));
+						++cnt;
+						if (cnt > 6000) {
+							throw 1;
+						}
+					} while (getProcessStatus());
+				} else {
+					//直接解锁后返回
+					m_rwProcMutex.unlock_shared();
+				}
+				return true;
+			}
+			return false;
+		}
+
+		/*
+		  停止进程运行
+		  传入需要输入的命令(需要包含换行符,本函数为多字节字符集版本)，以及非0的超时时间。
+		  将输入命令并且等待进程自行结束，如果超时就强制结束进程
+		  注意：超时时间大于0小于20ms按20ms计
+		  返回是否超时
+		*/
+		bool Stop(const std::string& input, int timeoutMilliseconds) {
+			//获取锁
+			m_rwProcMutex.lock_shared();
+
+			//先尝试输入命令，等待进程自然结束
+
+			//判断状态，进程已经结束就没有必要再结束了
+			if (!m_processStatus) {
+				m_rwProcMutex.unlock_shared();
+				return false;
+			}
+
+			//输入命令
+			DWORD bytesWritten;
+			WriteFile(m_inputPipeWrite, input.c_str(), input.size(), &bytesWritten, NULL);
+
+			//释放锁
+			m_rwProcMutex.unlock_shared();
+
+			//计时等待进程结束
+			bool isTimeout = false;
+			do {
+				//睡眠20ms
+				std::this_thread::sleep_for(std::chrono::milliseconds(20));
+				timeoutMilliseconds -= 20;
+				if (timeoutMilliseconds <= 0) {
+					isTimeout = true;
+					break;
+				}
+			} while (getProcessStatus());
+
+			//判断是自然结束还是超时了
+			if (isTimeout) {
+				//超时了就强制结束进程
+
+				//获取锁
+				m_rwProcMutex.lock_shared();
+
+				//判断进程是否结束
+				if (m_processStatus) {
+					//强制结束进程
+					TerminateProcess(m_processHandle, 0);
+
+					//结束进程后释放锁
+					m_rwProcMutex.unlock_shared();
+
+					//等待进程结束
+					int cnt = 0;
+					do {
+						//睡眠20ms
+						std::this_thread::sleep_for(std::chrono::milliseconds(20));
+						++cnt;
+						if (cnt > 6000) {
+							throw 1;
+						}
+					} while (getProcessStatus());
+				} else {
+					//直接解锁后返回
+					m_rwProcMutex.unlock_shared();
+				}
+				return true;
 			}
 			return false;
 		}
 
 		/*
 		输入函数
-		接收C风格字符串
+		接收C风格字符串，长度不包含\0
+		请根据目标字符集自行做好转换
+		如果目标程序使用UTF16，记得把wchar_t*强制转换为char*再传入，并且给len*2确保缓冲区大小无误
 		*/
 		void Input(const char* input, DWORD len) {
 			//获取锁
@@ -426,6 +505,7 @@ class ConsoleProgram_Sync {
 		/*
 		  输入函数
 		  接收string类，原样输入，所以string需要内含换行符
+		  如果目标程序使用UTF16，请使用C风格版本。
 		*/
 		void Input(const std::string& input) {
 			//获取锁
@@ -449,6 +529,7 @@ class ConsoleProgram_Sync {
 		  输入一行
 		  接收string类，会添加换行符，可指定换行符风格
 		  换行符风格未指定时，默认采用Windows的CRLF风格
+		  如果目标程序使用UTF16，请使用wstring版本。
 		*/
 		void InputLine(const std::string& input, NewlineStyle newlineStyle = NewlineStyle::CRLF) {
 			//获取锁
@@ -487,10 +568,54 @@ class ConsoleProgram_Sync {
 		}
 
 		/*
+		  输入一行
+		  接收wstring类，会添加换行符，可指定换行符风格
+		  换行符风格未指定时，默认采用Windows的CRLF风格
+		  如果目标程序使用多字节字符集，请使用string版本。
+		 */
+		void InputLine(const std::wstring& input, NewlineStyle newlineStyle = NewlineStyle::CRLF) {
+			//获取锁
+			m_rwProcMutex.lock_shared();
+
+			//判断进程是否启动，未启动就直接返回
+			if (!m_processStatus) {
+				m_rwProcMutex.unlock_shared();
+				return;
+			}
+
+			//把文本写入输入管道
+			DWORD bytesWritten;
+			WriteFile(m_inputPipeWrite, input.c_str(), input.size() * 2, &bytesWritten, NULL);
+
+			//处理换行符
+			const char* newline;
+			switch (newlineStyle) {
+				case NewlineStyle::CR:
+					newline = "\r";
+					break;
+				case NewlineStyle::LF:
+					newline = "\n";
+					break;
+				case NewlineStyle::CRLF:
+				default:
+					newline = "\r\n";
+					break;
+			}
+
+			//写入换行符
+			WriteFile(m_inputPipeWrite, newline, strlen(newline), &bytesWritten, NULL);
+
+			//解锁
+			m_rwProcMutex.unlock_shared();
+		}
+
+		/*
 		拉取输出
 		同步方式读取输出，如果没有输出就会一直等待，直到获取到输出才返回
 		返回实际写入的字节数目。如果在等待过程中进程自然结束，那么返回0
-		保证在数据的末尾有\0，这个\0不计入"实际写入的字节数目"
+		保证在数据的末尾有两个\0，这两个\0不计入"实际写入的字节数目"
+		需要自行处理编码转换，如果已知目标程序输出UTF16，可以把wchar_t*强转char*并且为长度*2再作为缓冲区传入
+		缓冲区大小必须大于2，否则行为未定义
 		*/
 		DWORD PullOutput(char* buffer, DWORD bufferSize) {
 			//获取读锁
@@ -512,10 +637,11 @@ class ConsoleProgram_Sync {
 
 				if (m_lastOutputBuffer != NULL) {
 					//说明有剩下的数据没有取出，这里模拟从管道取出数据
-					if (m_lastOutputBufferLen < bufferSize) {
+					if (m_lastOutputBufferLen < bufferSize - 1) {
 						//一次性搞定，直接复制进去即可
 						strncpy(buffer, m_lastOutputBuffer, m_lastOutputBufferLen);
 						buffer[m_lastOutputBufferLen] = 0;
+						buffer[m_lastOutputBufferLen + 1] = 0;
 
 						//删除字符串的内存空间
 						delete[] m_lastOutputBuffer;
@@ -529,15 +655,16 @@ class ConsoleProgram_Sync {
 						//需要分次拷贝
 
 						//复制缓冲区能承受的最大长度
-						strncpy(buffer, m_lastOutputBuffer, bufferSize - 1);
+						strncpy(buffer, m_lastOutputBuffer, bufferSize - 2);
 						buffer[bufferSize - 1] = 0;
+						buffer[bufferSize - 2] = 0;
 
 						//新开辟空间存剩下的部分
-						m_lastOutputBufferLen = m_lastOutputBufferLen - bufferSize + 1;
+						m_lastOutputBufferLen = m_lastOutputBufferLen - bufferSize + 2;
 						char* tmp = new char [m_lastOutputBufferLen + 1];
 
 						//复制到新空间，并且释放旧的
-						strncpy(tmp, m_lastOutputBuffer + bufferSize - 1, m_lastOutputBufferLen);
+						strncpy(tmp, m_lastOutputBuffer + bufferSize - 2, m_lastOutputBufferLen);
 						tmp[m_lastOutputBufferLen] = 0;
 						delete[] m_lastOutputBuffer;
 						m_lastOutputBuffer = tmp;
@@ -545,12 +672,13 @@ class ConsoleProgram_Sync {
 						//解锁
 						m_rwProcMutex.unlock();
 
-						return bufferSize - 1;
+						return bufferSize - 2;
 					}
 				}
 				//解锁
 				m_rwProcMutex.unlock();
 				buffer[0] = '\0';
+				buffer[1] = '\0';
 				return 0;
 			}
 
@@ -567,17 +695,19 @@ class ConsoleProgram_Sync {
 				//管道变了，解锁退出
 				m_outputMutex.unlock();
 				buffer[0] = '\0';
+				buffer[1] = '\0';
 				return 0;
 			}
 
 			//读入数据
 			DWORD bytesRead;
-			ReadFile(hpipe, buffer, bufferSize - 1, &bytesRead, NULL);
+			ReadFile(hpipe, buffer, bufferSize - 2, &bytesRead, NULL);
 
 			//退出读取专用锁
 			m_outputMutex.unlock();
 
 			buffer[bytesRead] = '\0';
+			buffer[bytesRead + 1] = '\0';
 			return bytesRead;
 		}
 
